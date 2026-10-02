@@ -1,0 +1,110 @@
+name: Venor2 Wiki Monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '* * * * *'
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  URL: "https://wiki.venor2.hu/"
+  WH: "${{ secrets.DISCORD_WEBHOOK }}"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch API
+        id: fa
+        run: |
+          R=$(curl -s "$URL/api/items?locale=hu" 2>/dev/null || echo "[]")
+          T=$(echo "$R" | jq -r 'if type=="array" then length else 0 end' 2>/dev/null || echo "0")
+          H=$(echo "$R" | sha256sum | cut -d' ' -f1 || echo "err")
+          if [ "$T" -gt 10 ] 2>/dev/null; then
+            echo "type=c" >> $GITHUB_OUTPUT
+            echo "hash=$H" >> $GITHUB_OUTPUT
+            echo "count=$T" >> $GITHUB_OUTPUT
+          else
+            echo "type=p" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Detect changes
+        id: ch
+        run: |
+          T=${{ steps.fa.outputs.type }}
+          H=${{ steps.fa.outputs.hash }}
+          C=false; N=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          CNT=0
+          if [ -f docs/status.json ]; then
+            CNT=$(grep -o '"c":[0-9]*' docs/status.json | grep -o '[0-9]*' || echo 0)
+          fi
+          CNT=$((CNT+1))
+          LC=""
+          if [ -f docs/status.json ]; then
+            LC=$(grep -o '"lc":"[^"]*"' docs/status.json | cut -d'"' -f4 || echo "")
+          fi
+          if [ "$T" = "c" ]; then
+            OH=""
+            if [ -f docs/.hash ]; then OH=$(cat docs/.hash); fi
+            if [ "$H" != "$OH" ]; then C=true; LC=$N; fi
+            echo "$H" > docs/.hash
+          elif [ "$T" = "p" ]; then
+            OS=""
+            if [ -f docs/status.json ]; then
+              OS=$(grep -o '"s":"[^"]*"' docs/status.json | cut -d'"' -f4 || echo "")
+            fi
+            if [ "$OS" != "p" ]; then C=true; fi
+          fi
+          echo '{"s":"'"$T"'","lc":"'"${LC:-$N}"'","c":'"$CNT"'}' > docs/status.json
+          echo "changed=$C" >> $GITHUB_OUTPUT
+
+      - name: Discord status embed
+        env:
+          ST: ${{ steps.fa.outputs.type }}
+        run: |
+          set +e
+          HT=$(TZ='Europe/Budapest' date +"%Y.%m.%d %H:%M:%S" 2>/dev/null || date -d '+2 hours' +"%Y.%m.%d %H:%M:%S" 2>/dev/null || date -u +"%Y.%m.%d %H:%M:%S")
+          CT=$(grep -o '"c":[0-9]*' docs/status.json | grep -o '[0-9]*' || echo "0")
+          if [ "$ST" = "c" ]; then CL="5763719"; SI=":green_circle:"; SS="Van tartalom"
+          else CL="15548997"; SI=":red_circle:"; SS="Meg nincs tartalom"; fi
+
+          jq -n --arg u "Venor2 Wiki" --arg a "https://wiki.venor2.hu/favicon.ico" --argjson cl "$CL" --arg si "$SI" --arg ss "$SS" --arg ht "$HT" --arg ct "$CT" '{"username":$u,"avatar_url":$a,"embeds":[{"title":"Venor2 Wiki Status","color":$cl,"thumbnail":{"url":$a},"fields":[{"name":"Allapot","value":($si+" "+$ss),"inline":true},{"name":"Utolso ellenorzes","value":$ht,"inline":true},{"name":"Ellenorzesek szama","value":$ct,"inline":true},{"name":"Link","value":"[wiki.venor2.hu](https://wiki.venor2.hu/)","inline":false}],"footer":{"text":"GitHub Actions | 1 percenkent"},"timestamp":"'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"}]}' > /tmp/embed.json
+
+          [ -f docs/.msg_id ] && curl -s -X DELETE "$WH/messages/$(cat docs/.msg_id)" > /dev/null
+          R=$(curl -s -X POST "$WH?wait=true" -H "Content-Type: application/json" -d @/tmp/embed.json)
+          ID=$(echo "$R" | grep -o '"id":"[0-9]*"' | head -1 | cut -d'"' -f4)
+          if [ -n "$ID" ]; then echo "$ID" > /tmp/msg_id; fi
+
+      - name: Ping on real change
+        if: steps.ch.outputs.changed == 'true' && steps.fa.outputs.type == 'c'
+        env:
+          ST: ${{ steps.fa.outputs.type }}
+        run: |
+          curl -s -X POST "$WH" -H "Content-Type: application/json" --data-raw '{"username":"Venor2 Wiki","content":"<@1469423126105297019> A wiki frissult! Nezz ra: https://wiki.venor2.hu/"}'
+
+      - name: Commit status
+        run: |
+          cp /tmp/msg_id docs/.msg_id 2>/dev/null || true
+          touch docs/.msg_id docs/.hash
+          git config user.name "venor2-bot"
+          git config user.email "venor2-bot@users.noreply.github.com"
+          git add docs/status.json docs/.msg_id docs/.hash
+          if git diff --staged --quiet; then echo "No changes"; else git commit -m "s:${{ steps.fa.outputs.type }}"; git push origin main; fi
+
+      - name: Schedule next run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const delay = ms => new Promise(r => setTimeout(r, ms));
+            await delay(55000);
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'venor2-wiki-monitor.yml',
+              ref: 'main'
+            });

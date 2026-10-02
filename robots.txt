@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://airfalconx.vercel.app/sitemap.xml

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Venor2 Wiki Status</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 20px;
+  }
+  .card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 16px;
+    padding: 40px; max-width: 520px; width: 100%;
+    text-align: center;
+  }
+  .status-dot {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: inline-block; margin-bottom: 12px;
+    transition: background 0.3s;
+  }
+  .status-dot.red { background: #da3633; box-shadow: 0 0 20px rgba(218,54,51,0.5); }
+  .status-dot.green { background: #3fb950; box-shadow: 0 0 20px rgba(63,185,80,0.5); }
+  .status-dot.gray { background: #484f58; box-shadow: 0 0 20px rgba(72,79,88,0.3); }
+  .status-label { font-size: 20px; font-weight: 700; margin-bottom: 6px; display: block; }
+  .status-text { font-size: 14px; color: #8b949e; margin-bottom: 24px; display: block; }
+  .divider { border: none; border-top: 1px solid #21262d; margin: 20px 0; }
+  .info-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; }
+  .info-row .label { color: #8b949e; }
+  .info-row .value { color: #e6edf3; font-weight: 500; }
+  .badge-container { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .badge.gray { background: #21262d; color: #8b949e; }
+  .badge.purple { background: rgba(171,107,201,0.2); color: #bc8cff; border: 1px solid rgba(171,107,201,0.3); }
+  .badge.green { background: rgba(63,185,80,0.15); color: #56d364; border: 1px solid rgba(63,185,80,0.3); }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 20px; }
+  .link { color: #bc8cff; text-decoration: none; }
+  .link:hover { text-decoration: underline; }
+  .loading { display: none; }
+  .last-update { font-size: 11px; color: #484f58; margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Venor2 Wiki</h1>
+  <div class="subtitle">Státuszfigyelő</div>
+
+  <div id="status-indicator">
+    <div class="status-dot gray" id="dot"></div>
+    <span class="status-label" id="statusLabel">Ellenőrzés...</span>
+    <span class="status-text" id="statusText">Várakozás az első ellenőrzésre</span>
+  </div>
+
+  <hr class="divider">
+
+  <div class="info-row"><span class="label">Utolsó ellenőrzés</span><span class="value" id="lastCheck">-</span></div>
+  <div class="info-row"><span class="label">Utolsó változás</span><span class="value" id="lastChange">-</span></div>
+  <div class="info-row"><span class="label">Ellenőrzések száma</span><span class="value" id="checkCount">0</span></div>
+
+  <hr class="divider">
+
+  <div class="badge-container">
+    <span class="badge purple" id="badgeStatus">Ellenőrzés...</span>
+    <a href="https://wiki.venor2.hu/" class="badge gray" target="_blank" rel="noopener">Wiki megnyitása ↗</a>
+    <a href="https://github.com/Adika713/venor2-wiki-monitor/actions" class="badge gray" target="_blank" rel="noopener">GitHub Actions ↗</a>
+  </div>
+
+  <div class="last-update" id="pageLoadTime"></div>
+</div>
+
+<script>
+async function fetchStatus() {
+  try {
+    const res = await fetch('status.json?_=' + Date.now());
+    const data = await res.json();
+    updateUI(data);
+  } catch {
+    setTimeout(fetchStatus, 2000);
+  }
+}
+
+function updateUI(data) {
+  const dot = document.getElementById('dot');
+  const label = document.getElementById('statusLabel');
+  const text = document.getElementById('statusText');
+  const badgeStatus = document.getElementById('badgeStatus');
+
+  if (data.status === 'content') {
+    dot.className = 'status-dot green';
+    label.textContent = 'Van tartalom!';
+    text.textContent = 'A wiki frissült, már nem a "Hamarosan" üzenet van.';
+    badgeStatus.className = 'badge green';
+    badgeStatus.textContent = 'Van tartalom';
+  } else if (data.status === 'placeholder') {
+    dot.className = 'status-dot red';
+    label.textContent = 'Még nincs tartalom';
+    text.textContent = 'A wiki-n még "Hamarosan" üzenet van.';
+    badgeStatus.className = 'badge purple';
+    badgeStatus.textContent = 'Hamarosan';
+  } else {
+    dot.className = 'status-dot gray';
+    label.textContent = 'Ellenőrzés...';
+    text.textContent = 'Várakozás...';
+    badgeStatus.className = 'badge gray';
+    badgeStatus.textContent = 'Ismeretlen';
+  }
+
+  if (data.last_check) {
+    const d = new Date(data.last_check);
+    document.getElementById('lastCheck').textContent = d.toLocaleString('hu-HU');
+  }
+  if (data.last_change) {
+    const d = new Date(data.last_change);
+    document.getElementById('lastChange').textContent = d.toLocaleString('hu-HU');
+  }
+  document.getElementById('checkCount').textContent = data.check_count || 0;
+}
+
+document.getElementById('pageLoadTime').textContent = 'Oldal betöltve: ' + new Date().toLocaleString('hu-HU');
+fetchStatus();
+setInterval(fetchStatus, 15000);
+</script>
+</body>
+</html>
