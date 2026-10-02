@@ -92,6 +92,8 @@ const WIKI_ITEM_URL = (vnum) => `https://wiki.venor2.hu/items/${vnum}`;
 const WIKI_LIST_URL = 'https://wiki.venor2.hu/items?type=ITEM_COSTUME&subtype=COSTUME_PET';
 const API_URL = 'https://wiki.venor2.hu/api/items?locale=hu';
 const REFRESH_MS = 60 * 60 * 1000; // ennyi időnként kérdezi le újra a wikit
+const ITEMS_FILES = ['items.json', 'items.txt'];            // a repóba feltöltött pet-lista (wiki /api/items?locale=hu)
+const MANIFEST_FILES = ['icon-manifest.json', 'icon-manifest.txt']; // a repóba feltöltött ikon-lista
 const MANIFEST_URL = 'https://wiki.venor2.hu/api/icon-manifest';
 const ICON_BASE = 'https://wiki.venor2.hu/assets/icons/';
 let icons = {}; // vnum -> képfájl neve (az icon-manifestből)
@@ -181,6 +183,16 @@ function extractPets(body){
     .map(i => ({vnum: i.vnum, name: i.name, localeName: i.locale_name || i.name}));
 }
 
+async function fetchLocal(names){
+  for (const n of names){
+    try{
+      const r = await fetch(n + '?t=' + Date.now(), {cache: 'no-store'});
+      if (r.ok) return {name: n, body: await r.json()};
+    }catch{}
+  }
+  return null;
+}
+
 function isManifest(b){
   return !!b && !Array.isArray(b) && !!b.items && typeof b.items === 'object' && !Array.isArray(b.items);
 }
@@ -214,16 +226,16 @@ async function getPets(){
     return {pets, at, source: 'wiki'};
   }catch(e){ err = e.message || String(e); }
   if (cached) return {pets: cached.pets, at: cached.fetchedAt, source: 'stale', err};
-  try{
-    const d = await (await fetch('pets.json?t=' + Date.now(), {cache: 'no-store'})).json();
-    if (d.pets && d.pets.length) return {pets: d.pets, at: d.updatedAt ? Date.parse(d.updatedAt) : null, source: 'file', err};
-  }catch{}
   return {pets: [], at: null, source: 'none', err};
 }
 
 async function load(){
-  const [res, iconMap] = await Promise.all([getPets(), getIcons()]);
-  icons = iconMap;
+  const [li, lm] = await Promise.all([fetchLocal(ITEMS_FILES), fetchLocal(MANIFEST_FILES)]);
+  const localPets = li ? extractPets(li.body) : [];
+  const localIcons = lm && isManifest(lm.body) ? lm.body.items : null;
+  const res = localPets.length ? {pets: localPets, at: null, source: 'repo'} : await getPets();
+  icons = localIcons || await getIcons();
+  if (localPets.length && localIcons) $('wikiimport').hidden = true; // mindkét fájl a repóban van: nincs szükség kézi betöltésre
   const {pets: raw, at, source, err} = res;
   const pets = raw.slice().sort((a, b) => a.localeName.localeCompare(b.localeName, 'hu'));
   const known = store.get('venor2.known', null);
@@ -240,6 +252,7 @@ async function load(){
   const when = at ? new Date(at).toLocaleString('hu-HU') : '';
   const link = `<a href="${WIKI_LIST_URL}" target="_blank" rel="noopener">teljes lista a wikin</a>`;
   const msg = {
+    repo:  `A repóban lévő wiki-adatok alapján (${pets.length} pet)`,
     wiki:  `Frissítve a wikiről: ${when}`,
     cache: `Utoljára a wikiről frissítve: ${when} (óránként frissül)`,
     stale: `A wiki most nem érhető el, a legutóbb mentett lista látszik (${when})`,
