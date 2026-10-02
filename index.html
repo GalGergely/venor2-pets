@@ -87,6 +87,8 @@
 // ---- Beállítások (ha a wiki címei mások, itt kell átírni) ----
 const WIKI_ITEM_URL = (vnum) => `https://wiki.venor2.hu/items/${vnum}`;
 const WIKI_LIST_URL = 'https://wiki.venor2.hu/items?type=ITEM_COSTUME&subtype=COSTUME_PET';
+const API_URL = 'https://wiki.venor2.hu/api/items?locale=hu';
+const REFRESH_MS = 60 * 60 * 1000; // ennyi időnként kérdezi le újra a wikit
 const ICON_URL = null; // pl. (vnum) => `https://valami/ikonok/${vnum}.png` – ha nincs, monogram jelenik meg
 
 // ---- Mentés a böngészőben ----
@@ -167,16 +169,38 @@ function buildTile(pet, isNew){
   return li;
 }
 
-async function load(){
-  let data;
+function extractPets(body){
+  const items = Array.isArray(body) ? body : (Object.values(body || {}).find(Array.isArray) || []);
+  return items
+    .filter(i => i.type === 'ITEM_COSTUME' && i.sub_type === 'COSTUME_PET')
+    .map(i => ({vnum: i.vnum, name: i.name, localeName: i.locale_name || i.name}));
+}
+
+async function getPets(){
+  const cached = store.get('venor2.pets', null); // {fetchedAt, pets}
+  if (cached && Date.now() - cached.fetchedAt < REFRESH_MS)
+    return {pets: cached.pets, at: cached.fetchedAt, source: 'cache'};
+  let err = '';
   try{
-    const r = await fetch('pets.json?t=' + Date.now(), {cache: 'no-store'});
-    data = await r.json();
-  }catch{
-    $('updated').textContent = 'A pets.json nem tölthető be.';
-    return;
-  }
-  const pets = (data.pets || []).slice().sort((a, b) => a.localeName.localeCompare(b.localeName, 'hu'));
+    const r = await fetch(API_URL, {cache: 'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const pets = extractPets(await r.json());
+    if (!pets.length) throw new Error('nincs pet a válaszban');
+    const at = Date.now();
+    store.set('venor2.pets', {fetchedAt: at, pets});
+    return {pets, at, source: 'wiki'};
+  }catch(e){ err = e.message || String(e); }
+  if (cached) return {pets: cached.pets, at: cached.fetchedAt, source: 'stale', err};
+  try{
+    const d = await (await fetch('pets.json?t=' + Date.now(), {cache: 'no-store'})).json();
+    if (d.pets && d.pets.length) return {pets: d.pets, at: d.updatedAt ? Date.parse(d.updatedAt) : null, source: 'file', err};
+  }catch{}
+  return {pets: [], at: null, source: 'none', err};
+}
+
+async function load(){
+  const {pets: raw, at, source, err} = await getPets();
+  const pets = raw.slice().sort((a, b) => a.localeName.localeCompare(b.localeName, 'hu'));
   const known = store.get('venor2.known', null);
   const knownSet = new Set(known || []);
   const grid = $('grid');
@@ -186,14 +210,21 @@ async function load(){
     tiles.set(pet.vnum, {li, pet});
     grid.append(li);
   }
-  store.set('venor2.known', pets.map(p => p.vnum));
+  if (pets.length) store.set('venor2.known', pets.map(p => p.vnum));
 
-  const when = data.updatedAt ? new Date(data.updatedAt).toLocaleString('hu-HU') : null;
+  const when = at ? new Date(at).toLocaleString('hu-HU') : '';
   const link = `<a href="${WIKI_LIST_URL}" target="_blank" rel="noopener">teljes lista a wikin</a>`;
-  $('updated').innerHTML = when ? `Utolsó változás a listában: ${when} · ${link}` : link;
+  const msg = {
+    wiki:  `Frissítve a wikiről: ${when}`,
+    cache: `Utoljára a wikiről frissítve: ${when} (óránként frissül)`,
+    stale: `A wiki most nem érhető el, a legutóbb mentett lista látszik (${when})`,
+    file:  `A wiki most nem érhető el, a feltöltött lista látszik (${when})`,
+    none:  'Nem sikerült betölteni a pet-listát a wikiről'
+  }[source];
+  $('updated').innerHTML = `${msg} · ${link}`;
   if (!pets.length){
     const e = $('empty'); e.hidden = false;
-    e.textContent = 'Még nincs pet-lista. Indítsd el egyszer kézzel az „Update pets” workflow-t a GitHub Actions fülön.';
+    e.textContent = `A böngésző nem érte el a wiki API-t (${err}). Ha „Failed to fetch” a hiba, a wiki valószínűleg nem engedi más oldalról a lekérést (CORS).`;
   }
   updateStats(); applyFilter();
 }

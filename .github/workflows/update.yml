@@ -1,8 +1,8 @@
 name: Update pets
 
 on:
-  schedule:
-    - cron: '7 * * * *'   # óránként, az óra 7. percében
+  # schedule:   (kikapcsolva: a wiki nem érhető el a GitHub szervereiről)
+  #   - cron: '7 * * * *'
   workflow_dispatch:       # kézi indítás a GitHub Actions fülről
 
 permissions:
@@ -12,10 +12,10 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
       - name: Fetch pets from wiki
         run: node scripts/update.mjs
       - name: Commit if changed
