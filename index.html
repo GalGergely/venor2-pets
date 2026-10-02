@@ -80,6 +80,8 @@
     <button id="export">Pipák mentése fájlba</button>
     <button id="import">Pipák betöltése fájlból</button>
     <input type="file" id="file" accept="application/json" hidden>
+    <button id="wikiimport">Pet-lista betöltése mentett wiki-fájlból</button>
+    <input type="file" id="wikifile" accept=".json,.txt,application/json,text/plain" hidden>
   </div>
 </main>
 
@@ -224,7 +226,10 @@ async function load(){
   $('updated').innerHTML = `${msg} · ${link}`;
   if (!pets.length){
     const e = $('empty'); e.hidden = false;
-    e.textContent = `A böngésző nem érte el a wiki API-t (${err}). Ha „Failed to fetch” a hiba, a wiki valószínűleg nem engedi más oldalról a lekérést (CORS).`;
+    const esc = (s) => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    e.innerHTML = `A pet-lista automatikus letöltése nem sikerült (${esc(err)}).<br><br>` +
+      `Töltsd be egyszer kézzel: nyisd meg a <a href="${API_URL}" target="_blank" rel="noopener">wiki API-linket</a>, ` +
+      `mentsd el a megnyíló oldalt fájlba (Ctrl+S), majd használd lent a „Pet-lista betöltése mentett wiki-fájlból” gombot.`;
   }
   updateStats(); applyFilter();
 }
@@ -255,6 +260,18 @@ $('file').addEventListener('change', async (e) => {
     }
     updateStats(); applyFilter();
   }catch{ alert('Ez a fájl nem olvasható be.'); }
+  e.target.value = '';
+});
+
+$('wikiimport').addEventListener('click', () => $('wikifile').click());
+$('wikifile').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  try{
+    const pets = extractPets(JSON.parse(await f.text()));
+    if (!pets.length) { alert('Ebben a fájlban nem találtam petet (ITEM_COSTUME / COSTUME_PET).'); e.target.value = ''; return; }
+    store.set('venor2.pets', {fetchedAt: Date.now(), pets});
+    location.reload();
+  }catch{ alert('Ez a fájl nem olvasható be. Az API-oldal tartalmát mentsd el, ne a böngésző „Weboldal – teljes” változatát.'); }
   e.target.value = '';
 });
 

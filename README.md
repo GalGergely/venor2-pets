@@ -8,7 +8,8 @@ A lista frissítését maga az oldal végzi: megnyitáskor, legfeljebb óránké
 2. Repo → Settings → Pages → Source: "Deploy from a branch", branch: `main`, mappa: `/ (root)`.
 3. Az oldal címe: `https://<felhasználónév>.github.io/<repó-név>/`
 
-Az Actions workflow (`update.yml`) már csak kézi tartalék, nem kötelező.
+Ha a böngészős lekérés nem megy (a wiki nem engedi), töltsd be egyszer kézzel: mentsd el fájlba az API-választ (https://wiki.venor2.hu/api/items?locale=hu, Ctrl+S), majd az oldalon a „Pet-lista betöltése mentett wiki-fájlból” gombbal olvasd be.
+Az Actions workflow (`update.yml`) nem kötelező, a wiki a GitHub szervereinek nem válaszol, nyugodtan törölheted a `.github` mappát.
 
 ## Beállítások
 Az `index.html` tetején a `<script>` elején: `WIKI_ITEM_URL` (a pet wiki-oldalának címe), `ICON_URL` (képek, ha van forrásuk).
