@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Venor2 petgyűjtemény</title>
+<style>
+  :root{
+    --ink:#0f1f27; --panel:#16303b; --panel-2:#1d3d4a; --line:#2f5667;
+    --text:#e9f0ea; --muted:#9bb2b9; --brass:#d2a64a; --jade:#5fc29a; --jade-ink:#0c2a20;
+  }
+  *{box-sizing:border-box}
+  html{scroll-padding-top:120px}
+  body{margin:0;background:var(--ink);color:var(--text);
+    font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{max-width:1200px;margin:0 auto;padding:28px 20px 12px}
+  h1{margin:0;font:700 clamp(1.6rem,4vw,2.3rem)/1.1 "Palatino Linotype","Book Antiqua",Palatino,Georgia,serif;letter-spacing:.01em}
+  .sub{margin:6px 0 0;color:var(--muted)}
+  .sub a{color:var(--brass)}
+  .bar{position:sticky;top:0;z-index:5;background:linear-gradient(var(--ink) 85%,transparent);padding:10px 0 14px}
+  .bar-in{max-width:1200px;margin:0 auto;padding:0 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+  .count{font-weight:700;font-size:1.05rem;white-space:nowrap}
+  .meter{flex:1 1 160px;min-width:120px;height:10px;background:var(--panel);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+  .meter i{display:block;height:100%;width:0;background:var(--jade);transition:width .25s}
+  .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .seg button{background:transparent;color:var(--muted);border:0;padding:8px 14px;font:inherit;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:var(--panel-2);color:var(--text);font-weight:600}
+  input[type=search]{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit;min-width:0;flex:1 1 160px;max-width:260px}
+  input::placeholder{color:var(--muted)}
+  main{max-width:1200px;margin:0 auto;padding:6px 20px 60px}
+  ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+  .tile{position:relative;display:flex;flex-direction:column;background:var(--panel);border:1px dashed var(--line);border-radius:14px;overflow:hidden}
+  .tile[hidden]{display:none}
+  .tile.owned{border:1px solid var(--jade);background:var(--panel-2)}
+  .toggle{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 10px 10px;text-align:center;flex:1}
+  .toggle:focus-visible,.wiki:focus-visible,.tools button:focus-visible,.seg button:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+  .badge{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;overflow:hidden;
+    font:700 1.35rem/1 "Palatino Linotype",Georgia,serif;color:var(--text);background:hsl(var(--h) 22% 26%);border:2px solid hsl(var(--h) 22% 38%)}
+  .badge img{width:100%;height:100%;object-fit:contain}
+  .owned .badge{background:hsl(var(--h) 45% 32%);border-color:var(--jade)}
+  .name{font-weight:600;overflow-wrap:anywhere;color:var(--muted)}
+  .owned .name{color:var(--text)}
+  .alt{font-size:.82rem;color:var(--muted);overflow-wrap:anywhere}
+  .tick{position:absolute;top:8px;right:8px;width:24px;height:24px;border-radius:50%;background:var(--jade);color:var(--jade-ink);
+    display:none;place-items:center;font-weight:900;font-size:.9rem}
+  .owned .tick{display:grid}
+  .new{position:absolute;top:8px;left:8px;background:var(--brass);color:#2a1f05;font-size:.75rem;font-weight:700;padding:2px 8px;border-radius:99px}
+  .wiki{display:block;text-align:center;padding:9px;border-top:1px solid var(--line);color:var(--brass);text-decoration:none;font-weight:600}
+  .wiki:hover{background:rgba(210,166,74,.12)}
+  .pulse{animation:pulse .22s ease-out}
+  @keyframes pulse{50%{transform:scale(.96)}}
+  .empty{padding:40px 0;color:var(--muted);max-width:60ch}
+  .tools{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px}
+  .tools button{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font:inherit;cursor:pointer}
+  .tools button:hover{border-color:var(--brass)}
+  @media (prefers-reduced-motion:reduce){.pulse{animation:none}.meter i{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Venor2 petgyűjtemény</h1>
+  <p class="sub" id="updated">Lista betöltése…</p>
+</header>
+
+<div class="bar"><div class="bar-in">
+  <span class="count" id="count">0 / 0</span>
+  <div class="meter" aria-hidden="true"><i id="meter"></i></div>
+  <div class="seg" role="group" aria-label="Szűrés">
+    <button data-f="all" aria-pressed="true">Mind</button>
+    <button data-f="owned" aria-pressed="false">Megvan</button>
+    <button data-f="missing" aria-pressed="false">Hiányzik</button>
+  </div>
+  <input type="search" id="q" placeholder="Keresés névre…" aria-label="Keresés névre">
+</div></div>
+
+<main>
+  <ul id="grid"></ul>
+  <p class="empty" id="empty" hidden></p>
+  <div class="tools">
+    <button id="export">Pipák mentése fájlba</button>
+    <button id="import">Pipák betöltése fájlból</button>
+    <input type="file" id="file" accept="application/json" hidden>
+  </div>
+</main>
+
+<script>
+// ---- Beállítások (ha a wiki címei mások, itt kell átírni) ----
+const WIKI_ITEM_URL = (vnum) => `https://wiki.venor2.hu/items/${vnum}`;
+const WIKI_LIST_URL = 'https://wiki.venor2.hu/items?type=ITEM_COSTUME&subtype=COSTUME_PET';
+const ICON_URL = null; // pl. (vnum) => `https://valami/ikonok/${vnum}.png` – ha nincs, monogram jelenik meg
+
+// ---- Mentés a böngészőben ----
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
+};
+const owned = new Set(store.get('venor2.owned', []));
+let filter = 'all', query = '';
+const tiles = new Map(); // vnum -> {li, pet}
+
+const $ = (id) => document.getElementById(id);
+const norm = (s) => (s || '').toLocaleLowerCase('hu').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+function updateStats(){
+  const total = tiles.size, have = [...tiles.keys()].filter(v => owned.has(v)).length;
+  $('count').textContent = `${have} / ${total} megszerezve`;
+  $('meter').style.width = total ? (have / total * 100) + '%' : '0';
+}
+
+function applyFilter(){
+  const q = norm(query);
+  let shown = 0;
+  for (const [vnum, {li, pet}] of tiles){
+    const isOwned = owned.has(vnum);
+    const okFilter = filter === 'all' || (filter === 'owned') === isOwned;
+    const okQuery = !q || norm(pet.localeName).includes(q) || norm(pet.name).includes(q);
+    li.hidden = !(okFilter && okQuery);
+    if (!li.hidden) shown++;
+  }
+  const e = $('empty');
+  if (tiles.size && !shown){ e.hidden = false; e.textContent = 'Nincs a szűrésnek megfelelő pet.'; }
+  else if (tiles.size){ e.hidden = true; }
+}
+
+function toggle(vnum){
+  const {li} = tiles.get(vnum);
+  if (owned.has(vnum)) owned.delete(vnum); else owned.add(vnum);
+  store.set('venor2.owned', [...owned]);
+  li.classList.toggle('owned', owned.has(vnum));
+  li.querySelector('.toggle').setAttribute('aria-pressed', owned.has(vnum));
+  li.classList.remove('pulse'); void li.offsetWidth; li.classList.add('pulse');
+  updateStats(); applyFilter();
+}
+
+function buildTile(pet, isNew){
+  const li = document.createElement('li');
+  li.className = 'tile' + (owned.has(pet.vnum) ? ' owned' : '');
+  li.style.setProperty('--h', (pet.vnum * 47) % 360);
+
+  const btn = document.createElement('button');
+  btn.className = 'toggle'; btn.type = 'button';
+  btn.setAttribute('aria-pressed', owned.has(pet.vnum));
+  btn.setAttribute('aria-label', `${pet.localeName} – megszereztem`);
+  btn.addEventListener('click', () => toggle(pet.vnum));
+
+  const badge = document.createElement('span'); badge.className = 'badge';
+  const initials = pet.localeName.trim().slice(0, 2);
+  if (ICON_URL){
+    const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.src = ICON_URL(pet.vnum);
+    img.onerror = () => { img.remove(); badge.textContent = initials; };
+    badge.append(img);
+  } else badge.textContent = initials;
+
+  const name = document.createElement('span'); name.className = 'name'; name.textContent = pet.localeName;
+  btn.append(badge, name);
+  if (pet.name && pet.name !== pet.localeName){
+    const alt = document.createElement('span'); alt.className = 'alt'; alt.textContent = pet.name; btn.append(alt);
+  }
+
+  const tick = document.createElement('span'); tick.className = 'tick'; tick.textContent = '✓'; tick.setAttribute('aria-hidden', 'true');
+  const wiki = document.createElement('a');
+  wiki.className = 'wiki'; wiki.textContent = 'Wiki: bónuszok, szerzés';
+  wiki.href = WIKI_ITEM_URL(pet.vnum); wiki.target = '_blank'; wiki.rel = 'noopener';
+
+  li.append(btn, tick, wiki);
+  if (isNew){ const n = document.createElement('span'); n.className = 'new'; n.textContent = 'új'; li.append(n); }
+  return li;
+}
+
+async function load(){
+  let data;
+  try{
+    const r = await fetch('pets.json?t=' + Date.now(), {cache: 'no-store'});
+    data = await r.json();
+  }catch{
+    $('updated').textContent = 'A pets.json nem tölthető be.';
+    return;
+  }
+  const pets = (data.pets || []).slice().sort((a, b) => a.localeName.localeCompare(b.localeName, 'hu'));
+  const known = store.get('venor2.known', null);
+  const knownSet = new Set(known || []);
+  const grid = $('grid');
+  for (const pet of pets){
+    const isNew = !!known && !knownSet.has(pet.vnum);
+    const li = buildTile(pet, isNew);
+    tiles.set(pet.vnum, {li, pet});
+    grid.append(li);
+  }
+  store.set('venor2.known', pets.map(p => p.vnum));
+
+  const when = data.updatedAt ? new Date(data.updatedAt).toLocaleString('hu-HU') : null;
+  const link = `<a href="${WIKI_LIST_URL}" target="_blank" rel="noopener">teljes lista a wikin</a>`;
+  $('updated').innerHTML = when ? `Utolsó változás a listában: ${when} · ${link}` : link;
+  if (!pets.length){
+    const e = $('empty'); e.hidden = false;
+    e.textContent = 'Még nincs pet-lista. Indítsd el egyszer kézzel az „Update pets” workflow-t a GitHub Actions fülön.';
+  }
+  updateStats(); applyFilter();
+}
+
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+  filter = b.dataset.f;
+  document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  applyFilter();
+}));
+$('q').addEventListener('input', (e) => { query = e.target.value; applyFilter(); });
+
+$('export').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify({owned: [...owned]})], {type: 'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'venor2-pets.json'; a.click();
+  URL.revokeObjectURL(a.href);
+});
+$('import').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  try{
+    const j = JSON.parse(await f.text());
+    const list = (Array.isArray(j) ? j : j.owned).filter(Number.isFinite);
+    owned.clear(); list.forEach(v => owned.add(v));
+    store.set('venor2.owned', [...owned]);
+    for (const [vnum, {li}] of tiles){
+      li.classList.toggle('owned', owned.has(vnum));
+      li.querySelector('.toggle').setAttribute('aria-pressed', owned.has(vnum));
+    }
+    updateStats(); applyFilter();
+  }catch{ alert('Ez a fájl nem olvasható be.'); }
+  e.target.value = '';
+});
+
+load();
+</script>
+</body>
+</html>
