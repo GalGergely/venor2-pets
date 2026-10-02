@@ -36,6 +36,7 @@
   .toggle:focus-visible,.wiki:focus-visible,.tools button:focus-visible,.seg button:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
   .badge{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;overflow:hidden;
     font:700 1.35rem/1 "Palatino Linotype",Georgia,serif;color:var(--text);background:hsl(var(--h) 22% 26%);border:2px solid hsl(var(--h) 22% 38%)}
+  .badge.img{border-radius:14px;background:rgba(0,0,0,.28);border-color:transparent}
   .badge img{width:100%;height:100%;object-fit:contain}
   .owned .badge{background:hsl(var(--h) 45% 32%);border-color:var(--jade)}
   .name{font-weight:600;overflow-wrap:anywhere;color:var(--muted)}
@@ -80,8 +81,8 @@
     <button id="export">Pipák mentése fájlba</button>
     <button id="import">Pipák betöltése fájlból</button>
     <input type="file" id="file" accept="application/json" hidden>
-    <button id="wikiimport">Pet-lista betöltése mentett wiki-fájlból</button>
-    <input type="file" id="wikifile" accept=".json,.txt,application/json,text/plain" hidden>
+    <button id="wikiimport">Betöltés mentett wiki-fájlokból (pet-lista + ikonok)</button>
+    <input type="file" id="wikifile" accept=".json,.txt,application/json,text/plain" multiple hidden>
   </div>
 </main>
 
@@ -91,7 +92,9 @@ const WIKI_ITEM_URL = (vnum) => `https://wiki.venor2.hu/items/${vnum}`;
 const WIKI_LIST_URL = 'https://wiki.venor2.hu/items?type=ITEM_COSTUME&subtype=COSTUME_PET';
 const API_URL = 'https://wiki.venor2.hu/api/items?locale=hu';
 const REFRESH_MS = 60 * 60 * 1000; // ennyi időnként kérdezi le újra a wikit
-const ICON_URL = null; // pl. (vnum) => `https://valami/ikonok/${vnum}.png` – ha nincs, monogram jelenik meg
+const MANIFEST_URL = 'https://wiki.venor2.hu/api/icon-manifest';
+const ICON_BASE = 'https://wiki.venor2.hu/assets/icons/';
+let icons = {}; // vnum -> képfájl neve (az icon-manifestből)
 
 // ---- Mentés a böngészőben ----
 const store = {
@@ -117,7 +120,7 @@ function applyFilter(){
   for (const [vnum, {li, pet}] of tiles){
     const isOwned = owned.has(vnum);
     const okFilter = filter === 'all' || (filter === 'owned') === isOwned;
-    const okQuery = !q || norm(pet.localeName).includes(q) || norm(pet.name).includes(q);
+    const okQuery = !q || norm(pet.localeName).includes(q);
     li.hidden = !(okFilter && okQuery);
     if (!li.hidden) shown++;
   }
@@ -149,21 +152,21 @@ function buildTile(pet, isNew){
 
   const badge = document.createElement('span'); badge.className = 'badge';
   const initials = pet.localeName.trim().slice(0, 2);
-  if (ICON_URL){
-    const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.src = ICON_URL(pet.vnum);
-    img.onerror = () => { img.remove(); badge.textContent = initials; };
+  const file = icons[pet.vnum];
+  if (file){
+    badge.classList.add('img');
+    const img = document.createElement('img');
+    img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; img.src = ICON_BASE + file;
+    img.onerror = () => { img.remove(); badge.classList.remove('img'); badge.textContent = initials; };
     badge.append(img);
   } else badge.textContent = initials;
 
   const name = document.createElement('span'); name.className = 'name'; name.textContent = pet.localeName;
   btn.append(badge, name);
-  if (pet.name && pet.name !== pet.localeName){
-    const alt = document.createElement('span'); alt.className = 'alt'; alt.textContent = pet.name; btn.append(alt);
-  }
 
   const tick = document.createElement('span'); tick.className = 'tick'; tick.textContent = '✓'; tick.setAttribute('aria-hidden', 'true');
   const wiki = document.createElement('a');
-  wiki.className = 'wiki'; wiki.textContent = 'Wiki: bónuszok, szerzés';
+  wiki.className = 'wiki'; wiki.textContent = 'Wiki-oldal'; wiki.title = 'Bónuszok és szerzési hely a wikin';
   wiki.href = WIKI_ITEM_URL(pet.vnum); wiki.target = '_blank'; wiki.rel = 'noopener';
 
   li.append(btn, tick, wiki);
@@ -176,6 +179,24 @@ function extractPets(body){
   return items
     .filter(i => i.type === 'ITEM_COSTUME' && i.sub_type === 'COSTUME_PET')
     .map(i => ({vnum: i.vnum, name: i.name, localeName: i.locale_name || i.name}));
+}
+
+function isManifest(b){
+  return !!b && !Array.isArray(b) && !!b.items && typeof b.items === 'object' && !Array.isArray(b.items);
+}
+
+async function getIcons(){
+  const cached = store.get('venor2.icons', null); // {fetchedAt, map}
+  if (cached && Date.now() - cached.fetchedAt < REFRESH_MS) return cached.map;
+  try{
+    const r = await fetch(MANIFEST_URL, {cache: 'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const b = await r.json();
+    if (!isManifest(b)) throw new Error('ismeretlen formátum');
+    store.set('venor2.icons', {fetchedAt: Date.now(), map: b.items});
+    return b.items;
+  }catch{}
+  return cached ? cached.map : {};
 }
 
 async function getPets(){
@@ -201,7 +222,9 @@ async function getPets(){
 }
 
 async function load(){
-  const {pets: raw, at, source, err} = await getPets();
+  const [res, iconMap] = await Promise.all([getPets(), getIcons()]);
+  icons = iconMap;
+  const {pets: raw, at, source, err} = res;
   const pets = raw.slice().sort((a, b) => a.localeName.localeCompare(b.localeName, 'hu'));
   const known = store.get('venor2.known', null);
   const knownSet = new Set(known || []);
@@ -223,13 +246,15 @@ async function load(){
     file:  `A wiki most nem érhető el, a feltöltött lista látszik (${when})`,
     none:  'Nem sikerült betölteni a pet-listát a wikiről'
   }[source];
-  $('updated').innerHTML = `${msg} · ${link}`;
+  const noIcons = pets.length && !Object.keys(icons).length ? ' · képek nélkül (lásd lent a betöltő gombot)' : '';
+  $('updated').innerHTML = `${msg}${noIcons} · ${link}`;
   if (!pets.length){
     const e = $('empty'); e.hidden = false;
     const esc = (s) => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
     e.innerHTML = `A pet-lista automatikus letöltése nem sikerült (${esc(err)}).<br><br>` +
-      `Töltsd be egyszer kézzel: nyisd meg a <a href="${API_URL}" target="_blank" rel="noopener">wiki API-linket</a>, ` +
-      `mentsd el a megnyíló oldalt fájlba (Ctrl+S), majd használd lent a „Pet-lista betöltése mentett wiki-fájlból” gombot.`;
+      `Töltsd be egyszer kézzel: nyisd meg külön-külön a <a href="${API_URL}" target="_blank" rel="noopener">pet-lista</a> és az ` +
+      `<a href="${MANIFEST_URL}" target="_blank" rel="noopener">ikon-lista</a> linket, mentsd el mindkettőt fájlba (Ctrl+S), ` +
+      `majd lent a „Betöltés mentett wiki-fájlokból” gombbal válaszd ki mindkét fájlt egyszerre.`;
   }
   updateStats(); applyFilter();
 }
@@ -265,14 +290,25 @@ $('file').addEventListener('change', async (e) => {
 
 $('wikiimport').addEventListener('click', () => $('wikifile').click());
 $('wikifile').addEventListener('change', async (e) => {
-  const f = e.target.files[0]; if (!f) return;
-  try{
-    const pets = extractPets(JSON.parse(await f.text()));
-    if (!pets.length) { alert('Ebben a fájlban nem találtam petet (ITEM_COSTUME / COSTUME_PET).'); e.target.value = ''; return; }
-    store.set('venor2.pets', {fetchedAt: Date.now(), pets});
-    location.reload();
-  }catch{ alert('Ez a fájl nem olvasható be. Az API-oldal tartalmát mentsd el, ne a böngésző „Weboldal – teljes” változatát.'); }
+  const files = [...e.target.files]; if (!files.length) return;
+  let gotPets = false, gotIcons = false;
+  for (const f of files){
+    try{
+      const body = JSON.parse(await f.text());
+      if (isManifest(body)){
+        store.set('venor2.icons', {fetchedAt: Date.now(), map: body.items}); gotIcons = true;
+      } else {
+        const pets = extractPets(body);
+        if (pets.length){ store.set('venor2.pets', {fetchedAt: Date.now(), pets}); gotPets = true; }
+      }
+    }catch{}
+  }
   e.target.value = '';
+  if (!gotPets && !gotIcons){
+    alert('Ezekben a fájlokban nem találtam sem petet, sem ikon-listát. Az API-oldal tartalmát mentsd el (Ctrl+S), ne a „teljes weboldal” változatot.');
+    return;
+  }
+  location.reload();
 });
 
 load();
